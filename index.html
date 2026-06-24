@@ -3167,6 +3167,44 @@
     }
 
 
+
+    /* ==============================
+       隱藏清除指令：畫面空白處輸入 0000000000 顯示清除資料按鈕
+       ============================== */
+    .hidden-clear-button{
+      position:fixed;
+      right:18px;
+      bottom:86px;
+      z-index:2500;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      min-height:48px;
+      padding:12px 18px;
+      border-radius:16px;
+      background:#dc2626;
+      color:#ffffff;
+      border:1px solid #fecaca;
+      box-shadow:0 18px 38px rgba(220,38,38,.36);
+      font-size:15px;
+      font-weight:1000;
+      letter-spacing:.02em;
+    }
+    .hidden-clear-button.show{
+      display:inline-flex;
+    }
+    .hidden-clear-button:hover{
+      background:#b91c1c;
+      transform:translateY(-1px);
+    }
+    body.dark-mode .hidden-clear-button{
+      background:#dc2626;
+      color:#fff;
+      border-color:#991b1b;
+      box-shadow:0 18px 42px rgba(0,0,0,.45);
+    }
+
+
   </style>
 </head>
 <body class="auth-checking">
@@ -3429,7 +3467,7 @@
         </article>
       </div>
     </section>
-    <section class="tab" id="actions"><div class="grid"><article class="card span-12"><h2>所有動作紀錄（保留14天）</h2><div class="actions-filter-row"><div class="field"><label>日期起始查詢</label><input id="actionStartDate" type="date"></div><button class="btn primary" id="btnActionDateSearch" type="button">查詢</button><button class="btn ghost" id="btnActionDateClear" type="button">顯示全部</button><button class="btn ghost" id="btnExportActionCsv">匯出動作紀錄 CSV</button></div><div id="actionTable"></div></article></div></section>
+    <section class="tab" id="actions"><div class="grid"><article class="card span-12"><h2>所有動作紀錄（保留3分鐘）</h2><div class="actions-filter-row"><div class="field"><label>日期起始查詢</label><input id="actionStartDate" type="date"></div><button class="btn primary" id="btnActionDateSearch" type="button">查詢</button><button class="btn ghost" id="btnActionDateClear" type="button">顯示全部</button><button class="btn ghost" id="btnExportActionCsv">匯出動作紀錄 CSV</button></div><div id="actionTable"></div></article></div></section>
 
     <section class="tab" id="settings">
       <div class="grid">
@@ -3528,7 +3566,7 @@ const SUPABASE_URL="https://fkuaeeyvxjhboxinughz.supabase.co";
 const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrdWFlZXl2eGpoYm94aW51Z2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyNzMwMTYsImV4cCI6MjA5Nzg0OTAxNn0.T-ESyO5bfW5zN0bDM_maFtdxqjEAwg4yQbemhoDr7Fs";
 const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 const DB_USAGE_LIMIT_MB=500;
-const ACTION_LOG_RETENTION_DAYS=14;
+const ACTION_LOG_RETENTION_MINUTES=3;
 let dbUsageTimer=null;
 let currentUser=null;
 let sessionLoginPassword='';
@@ -3921,6 +3959,108 @@ function renderUserManager(){
   if(!managedUsers.length)loadManagedUsers();
 }
 
+
+/* ==============================
+   隱藏清除指令
+   在畫面空白處輸入 0000000000 → 顯示清除資料按鈕
+   點清除後需再次輸入 0000000000 才會清空資料
+   ============================== */
+const HIDDEN_CLEAR_COMMAND='0000000000';
+let hiddenClearBuffer='';
+let hiddenClearTimer=null;
+let hiddenClearButtonTimer=null;
+
+function ensureHiddenClearButton(){
+  let btn=document.getElementById('hiddenClearAllBtn');
+  if(btn)return btn;
+
+  btn=document.createElement('button');
+  btn.id='hiddenClearAllBtn';
+  btn.type='button';
+  btn.className='hidden-clear-button';
+  btn.textContent='清除全部資料';
+  btn.title='隱藏清除功能：需再次輸入確認碼';
+  btn.onclick=confirmHiddenClearAll;
+  document.body.appendChild(btn);
+  return btn;
+}
+
+function showHiddenClearButton(){
+  const btn=ensureHiddenClearButton();
+  btn.classList.add('show');
+  clearTimeout(hiddenClearButtonTimer);
+  hiddenClearButtonTimer=setTimeout(()=>{
+    btn.classList.remove('show');
+  },120000);
+}
+
+function hideHiddenClearButton(){
+  const btn=document.getElementById('hiddenClearAllBtn');
+  if(btn)btn.classList.remove('show');
+  clearTimeout(hiddenClearButtonTimer);
+}
+
+function isTypingTarget(el){
+  if(!el)return false;
+  const tag=String(el.tagName||'').toLowerCase();
+  return tag==='input'||tag==='textarea'||tag==='select'||tag==='button'||el.isContentEditable;
+}
+
+function initHiddenClearCommand(){
+  ensureHiddenClearButton();
+
+  document.addEventListener('keydown',e=>{
+    if(isTypingTarget(e.target))return;
+    if(e.ctrlKey||e.altKey||e.metaKey)return;
+
+    const key=String(e.key||'');
+    if(!/^\d$/.test(key)){
+      hiddenClearBuffer='';
+      return;
+    }
+
+    hiddenClearBuffer=(hiddenClearBuffer+key).slice(-HIDDEN_CLEAR_COMMAND.length);
+    clearTimeout(hiddenClearTimer);
+    hiddenClearTimer=setTimeout(()=>{hiddenClearBuffer='';},2500);
+
+    if(hiddenClearBuffer===HIDDEN_CLEAR_COMMAND){
+      hiddenClearBuffer='';
+      showHiddenClearButton();
+      appAlert('已開啟隱藏清除按鈕。\n請確認真的要清空資料時，再點右下角「清除全部資料」。','隱藏指令已啟動',{danger:true});
+    }
+  });
+}
+
+async function confirmHiddenClearAll(){
+  if(!currentUser){
+    return appAlert('請先登入後再使用清除功能。','尚未登入',{danger:true});
+  }
+
+  const confirmCode=await appPrompt(
+    '此操作會清空所有庫存資料、進貨資料、出貨紀錄、所有動作紀錄與蝦皮同步任務。\n\n請再次輸入 0000000000 確認清除。',
+    '',
+    '確認清除全部資料',
+    {inputType:'password',confirmText:'確認清除',cancelText:'取消',required:true,danger:true,icon:'⚠️'}
+  );
+
+  if(confirmCode===null)return;
+
+  if(String(confirmCode).trim()!==HIDDEN_CLEAR_COMMAND){
+    return appAlert('確認碼錯誤，已取消清除資料。','清除取消',{danger:true});
+  }
+
+  const finalOk=await appConfirm(
+    '最後確認：資料清空後無法復原。\n\n會保留：帳號、權限、授權期限、系統設定。\n會清空：商品、進貨、庫存、出貨紀錄、所有動作紀錄、蝦皮同步任務。',
+    '最後確認',
+    {danger:true,confirmText:'我確定清空'}
+  );
+
+  if(!finalOk)return;
+
+  hideHiddenClearButton();
+  await callApi('clearAll',{});
+}
+
 const shipQueue=[];
 let shipQueueRunning=false;
 let shipQueueSeq=0;
@@ -4216,14 +4356,14 @@ async function pollShipRealtimeFallback(){
   }
 }
 function dbError(error){if(error)throw new Error(error.message||String(error))}
-function actionLogRetentionCutoffIso(){return new Date(Date.now()-ACTION_LOG_RETENTION_DAYS*24*60*60*1000).toISOString()}
+function actionLogRetentionCutoffIso(){return new Date(Date.now()-ACTION_LOG_RETENTION_MINUTES*60*1000).toISOString()}
 async function cleanupOldActionLogs(){
   if(!currentUser)return;
   try{
     const {error}=await db.from('stock_logs').delete().lt('created_at',actionLogRetentionCutoffIso());
-    if(error)console.warn('清除 14 天以前動作紀錄失敗：',error.message||error);
+    if(error)console.warn('清除 3 分鐘以前動作紀錄失敗：',error.message||error);
   }catch(err){
-    console.warn('清除 14 天以前動作紀錄失敗：',err?.message||err);
+    console.warn('清除 3 分鐘以前動作紀錄失敗：',err?.message||err);
   }
 }
 function formatDbUsageMb(value){
@@ -6265,7 +6405,7 @@ function bindEvents(){
   if($('btnReloadUsers'))$('btnReloadUsers').onclick=loadManagedUsers;
 }
 
-bindEvents();initTheme();initUiFontSize();if($('orderDate'))$('orderDate').value=todayInputDate();initAuth();
+bindEvents();initTheme();initUiFontSize();initHiddenClearCommand();if($('orderDate'))$('orderDate').value=todayInputDate();initAuth();
 </script>
 </body>
 </html>
