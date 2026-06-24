@@ -3429,7 +3429,7 @@
         </article>
       </div>
     </section>
-    <section class="tab" id="actions"><div class="grid"><article class="card span-12"><h2>所有動作紀錄</h2><div class="actions-filter-row"><div class="field"><label>日期起始查詢</label><input id="actionStartDate" type="date"></div><button class="btn primary" id="btnActionDateSearch" type="button">查詢</button><button class="btn ghost" id="btnActionDateClear" type="button">顯示全部</button><button class="btn ghost" id="btnExportActionCsv">匯出動作紀錄 CSV</button></div><div id="actionTable"></div></article></div></section>
+    <section class="tab" id="actions"><div class="grid"><article class="card span-12"><h2>所有動作紀錄（保留14天）</h2><div class="actions-filter-row"><div class="field"><label>日期起始查詢</label><input id="actionStartDate" type="date"></div><button class="btn primary" id="btnActionDateSearch" type="button">查詢</button><button class="btn ghost" id="btnActionDateClear" type="button">顯示全部</button><button class="btn ghost" id="btnExportActionCsv">匯出動作紀錄 CSV</button></div><div id="actionTable"></div></article></div></section>
 
     <section class="tab" id="settings">
       <div class="grid">
@@ -3528,6 +3528,7 @@ const SUPABASE_URL="https://fkuaeeyvxjhboxinughz.supabase.co";
 const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrdWFlZXl2eGpoYm94aW51Z2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyNzMwMTYsImV4cCI6MjA5Nzg0OTAxNn0.T-ESyO5bfW5zN0bDM_maFtdxqjEAwg4yQbemhoDr7Fs";
 const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 const DB_USAGE_LIMIT_MB=500;
+const ACTION_LOG_RETENTION_DAYS=14;
 let dbUsageTimer=null;
 let currentUser=null;
 let sessionLoginPassword='';
@@ -4215,6 +4216,16 @@ async function pollShipRealtimeFallback(){
   }
 }
 function dbError(error){if(error)throw new Error(error.message||String(error))}
+function actionLogRetentionCutoffIso(){return new Date(Date.now()-ACTION_LOG_RETENTION_DAYS*24*60*60*1000).toISOString()}
+async function cleanupOldActionLogs(){
+  if(!currentUser)return;
+  try{
+    const {error}=await db.from('stock_logs').delete().lt('created_at',actionLogRetentionCutoffIso());
+    if(error)console.warn('清除 14 天以前動作紀錄失敗：',error.message||error);
+  }catch(err){
+    console.warn('清除 14 天以前動作紀錄失敗：',err?.message||err);
+  }
+}
 function formatDbUsageMb(value){
   const n=Number(value);
   if(!Number.isFinite(n))return '--';
@@ -4478,6 +4489,7 @@ async function fetchPaged(makeQuery, pageSize = 1000) {
 
 async function fetchAllState() {
   requireLogin();
+  await cleanupOldActionLogs();
 
   const [pr, br, sr, ar, se] = await Promise.all([
     fetchPaged((from, to) =>
@@ -4505,6 +4517,7 @@ async function fetchAllState() {
     db
       .from('stock_logs')
       .select('*')
+      .gte('created_at', actionLogRetentionCutoffIso())
       .order('created_at', { ascending: false })
       .limit(500),
 
